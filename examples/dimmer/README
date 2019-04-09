@@ -1,0 +1,110 @@
+Demo of a HomeKit lightbulb dimmer (trailing/leading edge phase-cut)
+Leon 'likewise' Woestenberg <leon@sidebranch.com>
+
+using two available boards:
+
+1. Sonoff (RF) R2 Power v1.0 (with ESP8285)
+2. RobotDyn AC Light Dimmer Module
+
+Features: OTA, leading and/or trailing edge phase-cut dimming.
+
+The Sonoff board is labeled "Sonoff RF R2 Power V1.0." on the PCB.
+However this project uses the version without the RF add-on-board.
+
+This project further features/supports the following:
+Over-the-Air firmware updates, using Life-Cycle-Manager (LCM), which
+in turn depends on rboot.
+
+And as a result, assuming the Sonoff is not connected with wires,
+printf() or any standard output is redirected to UDP payloads
+across WiFi, and can be picked up with tcpdump on a host system.
+(Or a simple UDP client.)
+
+The Sonoff must first be programmed with rboot and LCM using bootmode over UART.
+Then it must be reset by pressing button (GPIO0) AFTER power cycling, and LCM
+must be configured to download main.bin from github <your_login>/<your_release_repo>.
+See LCM project for details.
+
+
+Initial planned hardware setup:
+==============================
+
+Sonoff              Dimmer
+--------------------------
+GND          <-->   GND
+VCC          <-->   VCC
+RX (GPIO 3)  <---   Z/C
+TX (GPIO 1)  --->   PWM (not PWM really...)
+
+The PWM input on the AC dimmer is not properly named. Instead it steers a TRIAC.
+
+The Z/C ---> RX connection works fine.
+However, the TX ---> PWM connection prevents boot on power-up.
+I am still unsure why this is.
+
+Second attempt:
+===============
+Similar, but replace TX (GPIO 1) with IO2 (GPIO2) --> PWM.
+However, the GPIO2 ---> PWM connection also prevents boot on power-up.
+I have tried adding 2K pull-up resistor on GPIO2, without luck.
+I am still unsure why this is.
+
+Third attempt:
+==============
+Instead Use GPIO13 --> PWM (used to drive the LED through R16=1kOhm)
+This works, the Sonoff now also boots from power-up.
+You can solder a wire to the pad of R16 that is closest to the processor,
+i.e. this is directly on the GPIO13 net coming from the ESP8285.
+Remember to make sure no other software drives the LED.
+
+
+Operation:
+==========
+The AC Dimmer Z/C output will output a pulse an each zero-crossing of the AC
+signal. This happens in either direction of the sine wave. Thus 50Hz nets will
+provide 100Hz pulse frequence, 60Hz nets will provide 120Hz pulse frequency.
+The pulse has slow rise and fall times. Together with power noise we need to
+filter this.
+
+
+Current software design:
+========================
+
+A GPIO interrupt is attached to each positive edge on GPIO3 (RX).
+The interrupt handler will set a flag indicating this is the first trigger, and
+will not act on further triggers (as multiple triggers may occur due to noise during
+the slow rising flank). On the first trigger (during each AC half-cycle) it will
+assert the TRIAC signal and start a hardware timer.
+
+The hardware timer interrupt handler will again de-assert the TRIAC signal.
+
+Current status:
+===============
+Both leading edge and trailing edge TRIAC signals are available.
+GPIO13 and GPIO2 provide a leading edge cut-off signal to the TRIAC
+GPIO1 provides a trailing edge cut-off signal to the TRIAC.
+
+Tested with:
+============
+- dimmable LED
+- low-voltage Tronic 220V->12V dimmer 
+
+Button Use:
+===========
+- Keep pressed shortly to switch lamp on/off.
+- Keep pressed for 2 to 5 seconds to request OTA update (takes minutes!)
+- Keep pressed for 6 to 10 seconds to reset the HomeKit pairing.
+- Keep pressed for more than 10 seconds to reset WiFi+HomeKit settings and perform OTA.
+
+Known issues:
+=============
+- Despite the multi-trigger filter, I sometimes see the timer restart a few times, see
+the future improvements to make this more robust.
+
+Future improvements:
+====================
+- Run the AC cycle timer stand-alone and only have it slowly corrected by the zero-cross
+detector. 
+- Measure the exact phase relationship between Z/C and actual zero-crossing.
+- Debounce buttons using a FreeRTOS thread, as the last interrupt button state must remain
+stable for some time after.
