@@ -29,6 +29,7 @@
 #include <esp8266.h>
 #include <FreeRTOS.h>
 #include <task.h>
+#include <timers.h>
 
 #include <homekit/homekit.h>
 #include <homekit/characteristics.h>
@@ -55,9 +56,8 @@ const int zerocross_gpio = 3;
 // triac_gpio used as output driving triac
 const int triac_gpio = 1;
 
-#ifndef DIMMER
-void switch_on_callback(homekit_characteristic_t *_ch, homekit_value_t on, void *context);
-#endif
+int enable_ota_after_powerup_press = 1;
+
 void button_callback(uint8_t gpio, bool button_is_pressed, uint32_t period);
 
 void led_write(bool on) {
@@ -119,13 +119,6 @@ void reset_configuration(uint32_t flags) {
     xTaskCreate(reset_configuration_task, "Reset configuration", 256, (void *)&flags_static, 2, NULL);
 }
 
-#ifndef DIMMER
-/* callback on HomeKit event */
-homekit_characteristic_t switch_on = HOMEKIT_CHARACTERISTIC_(
-    ON, false, .callback=HOMEKIT_CHARACTERISTIC_CALLBACK(switch_on_callback)
-);
-#endif
-
 /* brightness get and set */
 int g_brightness = 100;
 homekit_value_t light_bri_get() { return HOMEKIT_INT(g_brightness); }
@@ -163,6 +156,7 @@ static void IRAM frc1_interrupt_handler(void *arg)
 {
     timer_count++;
     timer_set_run(FRC1, false);
+
     gpio_write(triac_gpio, 0);
     gpio_write(2, 1);
     gpio_write(led_gpio, 1);
@@ -201,7 +195,6 @@ void zerocross_intr_callback(uint8_t gpio) {
         gpio_write(triac_gpio, 0);
         gpio_write(2, 1);
         gpio_write(led_gpio, 1);
-
         return;
     }
     else if (!g_on || (g_brightness == 0)) {
@@ -212,13 +205,13 @@ void zerocross_intr_callback(uint8_t gpio) {
     }
 
     zerocrossing_triggered++;
-    if ((zerocrossing_triggered == 1) || (zerocrossing_triggered == 100)) {
-
+    if ((zerocrossing_triggered == 1) || 0/*(zerocrossing_triggered == 100)*/) {
+#if 1
         /* short pulse on each zero-crossing*/
         gpio_write(triac_gpio, 1);
         gpio_write(2, 0);
         gpio_write(led_gpio, 0);
-
+#endif
         timer_set_divider(FRC1, TIMER_CLKDIV_16);
         uint32_t interval_us = 7500;
         interval_us = 10000 - (((g_brightness * 10000/*10ms(100Hz)*/) + 50) / 100);
@@ -236,11 +229,7 @@ void gpio_init() {
     led_write(false);
 
     gpio_enable(relay_gpio, GPIO_OUTPUT);
-#ifdef DIMMER
     relay_write(lightbulb_on.value.bool_value);
-#else
-    relay_write(switch_on.value.bool_value);
-#endif
 #if 1
     gpio_enable(triac_gpio, GPIO_OUTPUT);
     gpio_write(triac_gpio, 0);
@@ -261,35 +250,27 @@ void gpio_init() {
     timer_set_run(FRC1, false);
 }
 
-#ifndef DIMMER
-void switch_on_callback(homekit_characteristic_t *_ch, homekit_value_t on, void *context) {
-    relay_write(switch_on.value.bool_value);
-}
-#endif
-
-void button_callback(uint8_t gpio, bool button_is_pressed, uint32_t period) {
+void button_callback(uint8_t gpio, bool button_is_pressed, uint32_t pressed_period) {
     if (button_is_pressed) {
-      printf("button is being pressed (after %ums non-activity)\n", period);
+      printf("button is still being pressed for %ums\n", pressed_period);
       return;
     }
-    printf("button was kept pressed for %ums and now released.\n", period);
-    if (period < 1000) {
+    printf("button was kept pressed for %ums and now released.\n", pressed_period);
+    if ((pressed_period > 100) && (pressed_period < 1000)) {
+        if (enable_ota_after_powerup_press) {
+            printf("Request OTA Update.\n");
+        }
         printf("Toggling relay.\n");
-#ifdef DIMMER
         lightbulb_on.value.bool_value = !lightbulb_on.value.bool_value;
         g_on = lightbulb_on.value.bool_value;
         relay_write(lightbulb_on.value.bool_value);
         homekit_characteristic_notify(&lightbulb_on, lightbulb_on.value);
-#else            
-        switch_on.value.bool_value = !switch_on.value.bool_value;
-        relay_write(switch_on.value.bool_value);
-        homekit_characteristic_notify(&switch_on, switch_on.value);
-#endif
-    } else if ((period > 2000) && (period <= 5000)) {
+    } else
+    if ((pressed_period > 2000) && (pressed_period <= 5000)) {
         reset_configuration(FLAG_UPDATE_OTA);
-    } else if ((period > 5000) && (period <= 10000)) {
+    } else if ((pressed_period > 5000) && (pressed_period <= 10000)) {
         reset_configuration(FLAG_RESET_HOMEKIT);
-    } else if (period > 10000) {
+    } else if (pressed_period > 10000) {
         reset_configuration(FLAG_RESET_WIFI | FLAG_RESET_HOMEKIT | FLAG_UPDATE_OTA);
     }
     printf("zero-cross count: %u/%u, timer_count: %u\n", zerocross_count, zerocross_irq_count, timer_count);
@@ -328,11 +309,10 @@ homekit_accessory_t *accessories[] = {
             HOMEKIT_CHARACTERISTIC(MANUFACTURER, "iTEAD"),
             &serial,
             HOMEKIT_CHARACTERISTIC(MODEL, "Basic"),
-            HOMEKIT_CHARACTERISTIC(FIRMWARE_REVISION, "0.5.48"),
+            HOMEKIT_CHARACTERISTIC(FIRMWARE_REVISION, "0.5.71"),
             HOMEKIT_CHARACTERISTIC(IDENTIFY, switch_identify),
             NULL
         }),
-#ifdef DIMMER        
         HOMEKIT_SERVICE(LIGHTBULB, .primary=true,
             .characteristics=(homekit_characteristic_t*[]){
                 HOMEKIT_CHARACTERISTIC(NAME, "Sonoff Dimmer"),
@@ -340,13 +320,7 @@ homekit_accessory_t *accessories[] = {
                 HOMEKIT_CHARACTERISTIC(BRIGHTNESS, 100, .getter=light_bri_get, .setter=light_bri_set),
             NULL
         }),
-#else
-        HOMEKIT_SERVICE(SWITCH, .primary=true, .characteristics=(homekit_characteristic_t*[]){
-            HOMEKIT_CHARACTERISTIC(NAME, "Sonoff Switch"),
-            &switch_on,
-            NULL
-        }),
-#endif
+        /* zero terminate services */
         NULL
     }),
     NULL
@@ -402,6 +376,11 @@ void create_accessory_name_and_serial() {
     serial.value = HOMEKIT_STRING(serial_value);
 }
 
+void ota_timeout_cb(void *pvParameters) {
+    enable_ota_after_powerup_press = 0;
+    printf("Disabling OTA button function.\n");
+}
+
 void user_init(void) {
     uart_set_baud(0, 115200);
 
@@ -417,4 +396,8 @@ void user_init(void) {
     if (button_create(button_gpio, 0, button_callback)) {
         printf("Failed to initialize button\n");
     }
+
+    TimerHandle_t ota_timer = xTimerCreate(NULL/*name*/, pdMS_TO_TICKS(8000), pdFALSE/*reload*/, 0, ota_timeout_cb);
+    if (ota_timer) xTimerStart(ota_timer, 0);
+
 }

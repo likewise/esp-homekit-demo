@@ -100,11 +100,18 @@ Known issues:
 =============
 - Despite the multi-trigger filter, I sometimes see the timer restart a few times, see
 the future improvements to make this more robust.
+- A common problem with simple TRIAC dimmers is that they go into 'half-wave' mode -
+conducting only on one polarity of the mains waveform. This is a disaster for any transformer,
+which will immediately draw a very high current, limited only by the primary resistance
+The AC dimmer module seems to have this issue.
 
 Future improvements:
 ====================
 - Run the AC cycle timer stand-alone and only have it slowly corrected by the zero-cross
 detector. 
 - Measure the exact phase relationship between Z/C and actual zero-crossing.
+
+Recent improvements:
+====================
 - Debounce buttons using a FreeRTOS thread, as the last interrupt button state must remain
-stable for some time after.
+stable for some time after. The debouncing is performed with an integrating debouncer.
