@@ -1,4 +1,4 @@
-Demo of a HomeKit lightbulb dimmer (trailing/leading edge phase-cut)
+Demo of a HomeKit lightbulb dimmer (leading edge)
 Leon 'likewise' Woestenberg <leon@sidebranch.com>
 
 using two available boards:
@@ -6,7 +6,7 @@ using two available boards:
 1. Sonoff (RF) R2 Power v1.0 (with ESP8285)
 2. RobotDyn AC Light Dimmer Module
 
-Features: OTA, leading and/or trailing edge phase-cut dimming.
+Features: OTA, leading edge phase-cut dimming.
 
 The Sonoff board is labeled "Sonoff RF R2 Power V1.0." on the PCB.
 However this project uses the version without the RF add-on-board.
@@ -18,12 +18,12 @@ in turn depends on rboot.
 And as a result, assuming the Sonoff is not connected with wires,
 printf() or any standard output is redirected to UDP payloads
 across WiFi, and can be picked up with tcpdump on a host system.
-(Or a simple UDP client.)
+(Or a simple UDP client.) Use "make monitor" for tcpdump.
 
 The Sonoff must first be programmed with rboot and LCM using bootmode over UART.
-Then it must be reset by pressing button (GPIO0) AFTER power cycling, and LCM
-must be configured to download main.bin from github <your_login>/<your_release_repo>.
-See LCM project for details.
+Then LCM must be reset by pressing button (GPIO0) AFTER power cycling, and WiFi
+must be configured to join your WiFi access point, and LCM to download main.bin
+from github <your_login>/<your_release_repo>. See LCM project for details.
 
 
 Initial planned hardware setup:
@@ -36,7 +36,10 @@ VCC          <-->   VCC
 RX (GPIO 3)  <---   Z/C
 TX (GPIO 1)  --->   PWM (not PWM really...)
 
-The PWM input on the AC dimmer is not properly named. Instead it steers a TRIAC.
+The PWM input on the AC dimmer is not properly named. Instead it starts a TRIAC.
+Once the TRIAC is "fired" it remains active until the zero-crossing. This thus
+only allows leading edge cut-off which is useful only for resistive/inductive
+loads (RL), not for (most) electronic transformers or most LEDs.
 
 The Z/C ---> RX connection works fine.
 However, the TX ---> PWM connection prevents boot on power-up.
@@ -80,9 +83,9 @@ The hardware timer interrupt handler will again de-assert the TRIAC signal.
 
 Current status:
 ===============
-Both leading edge and trailing edge TRIAC signals are available.
+Leading edge and trailing edge signals are available.
 GPIO13 and GPIO2 provide a leading edge cut-off signal to the TRIAC
-GPIO1 provides a trailing edge cut-off signal to the TRIAC.
+GPIO1 provides a trailing edge signal.
 
 Tested with:
 ============

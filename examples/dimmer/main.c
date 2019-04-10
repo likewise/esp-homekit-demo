@@ -37,6 +37,9 @@
 #include <rboot-api.h>
 #include <stdout_redirect.h>
 
+/* from RavenCore */
+#include "custom_characteristics.h"
+/* from LifeCycleManager */
 #include "udplogger.h"
 #include "button.h"
 
@@ -302,6 +305,16 @@ void switch_identify(homekit_value_t _value) {
 homekit_characteristic_t name = HOMEKIT_CHARACTERISTIC_(NAME, "Sonoff Switch");
 homekit_characteristic_t serial = HOMEKIT_CHARACTERISTIC_(SERIAL_NUMBER, "000000000000");
 
+void ota_firmware_callback();
+homekit_characteristic_t ota_firmware = HOMEKIT_CHARACTERISTIC_(CUSTOM_OTA_UPDATE, false, .id=110, .callback=HOMEKIT_CHARACTERISTIC_CALLBACK(ota_firmware_callback));
+void ota_firmware_callback() {
+    if (ota_firmware.value.bool_value) {
+        reset_configuration(FLAG_UPDATE_OTA);
+    }
+}
+
+homekit_characteristic_t setup_service_name = HOMEKIT_CHARACTERISTIC_(NAME, "Setup", .id=100);
+
 homekit_accessory_t *accessories[] = {
     HOMEKIT_ACCESSORY(.id=1, .category=homekit_accessory_category_switch, .services=(homekit_service_t*[]){
         HOMEKIT_SERVICE(ACCESSORY_INFORMATION, .characteristics=(homekit_characteristic_t*[]){
@@ -318,8 +331,19 @@ homekit_accessory_t *accessories[] = {
                 HOMEKIT_CHARACTERISTIC(NAME, "Sonoff Dimmer"),
                 &lightbulb_on,
                 HOMEKIT_CHARACTERISTIC(BRIGHTNESS, 100, .getter=light_bri_get, .setter=light_bri_set),
-            NULL
-        }),
+                NULL
+            }
+        ),
+#if 0
+            .type = HOMEKIT_SERVICE_CUSTOM_SETUP,
+            .primary=false,
+            .characteristics=(homekit_characteristic_t*[]){
+                &setup_service_name,
+                &ota_firmware,
+                NULL
+            }
+        ,
+#endif
         /* zero terminate services */
         NULL
     }),
