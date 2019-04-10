@@ -1,0 +1,64 @@
+Demo of a HomeKit occupancy sensor
+Leon 'likewise' Woestenberg <leon@sidebranch.com>
+
+using two available boards:
+
+1. Sonoff (RF) R2 Power v1.0 (with ESP8285)
+2. Elecrow Crowtail Mini PIR Motion Sensor v2.0
+
+The Sonoff board is labeled "Sonoff RF R2 Power V1.0." on the PCB.
+However this project uses the version without the RF add-on-board.
+
+This project further features/supports the following:
+Over-the-Air firmware updates, using Life-Cycle-Manager (LCM), which
+in turn depends on rboot.
+
+And as a result, assuming the Sonoff is not connected with wires,
+printf() or any standard output is redirected to UDP payloads
+across WiFi, and can be picked up with tcpdump on a host system.
+(Or a simple UDP client.) Use "make monitor" for tcpdump.
+
+The Sonoff must first be programmed with rboot and LCM using bootmode over UART.
+Then LCM must be reset by pressing button (GPIO0) AFTER power cycling, and WiFi
+must be configured to join your WiFi access point, and LCM to download main.bin
+from github <your_login>/<your_release_repo>. See LCM project for details.
+
+
+Initial planned hardware setup:
+==============================
+
+Sonoff              Dimmer
+--------------------------
+GND          <-->   GND
+VCC          <-->   VCC
+RX (GPIO 3)  <---   SIG
+
+Operation:
+==========
+SIG will be driven high by the PIR sensor when it detects motion. If not motion is
+detected it will be driven low after a few seconds.
+
+
+Current software design:
+========================
+
+Implements HomeKit:
+- Occupancy Sensor
+- Switch
+
+A GPIO interrupt handler runs on each edge on GPIO3 (RX). The PIR state is 
+reflected directly in the HomeKit occupancy state.
+
+The switch is switched on if the PIR signal goes high.
+An absence timer is started if the PIR signal goes low.
+After timeout, the switch is turned off again.
+
+Button Use:
+===========
+Press button in first few seconds after power cycle to request OTA update.
+
+Press the button:
+- for 100 ms to toggle switch.
+- for 2 seconds (LED will blink 2x2 times) then release to request OTA update.
+- for 5 seconds (LED will blink 3x2 times) then release to reset the HomeKit pairing.
+- for 5 seconds (LED will blink 3x2 times) then release WiFi+HomeKit settings.
